@@ -1,0 +1,33 @@
+{
+	# Caddy's automatic HTTP->HTTPS redirect assumes port 443. We publish HTTPS on a
+	# configurable host port (HTTPS_PORT), so redirect explicitly below instead.
+	auto_https disable_redirects
+}
+
+http://{$SITE_ADDRESS} {
+	redir https://{host}:{$HTTPS_PORT:443}{uri} permanent
+}
+
+{$SITE_ADDRESS} {
+	# Internal CA: HTTPS on the LAN without a public certificate.
+	# Replace with a real certificate (tls cert.pem key.pem) for production.
+	tls internal
+
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
