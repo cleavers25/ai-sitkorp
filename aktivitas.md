@@ -759,3 +759,43 @@ Kualitas jawaban tetap (fakta sama, struktur Fakta/Dugaan/Rekomendasi dipertahan
 - Sisa Fase 5: alur insiden dan baseline hash file (PRD 50).
 
 ---
+
+## 2026-10-07 — Publikasi GitHub + Deploy awal di server kantor (intelnuc/dtpbg01)
+
+**Permintaan user**: sambungkan repo ke GitHub, lalu deploy di intelnuc (server kantor) agar mudah deploy/push. Domain: semula `sitkorp-infra.proxsis.com`, lalu diganti total menjadi **`sitkorp-infra.proxsisgroup.com`** (domain `sitkorp-infra.proxsis.com` tidak dipakai — DNS-nya tidak ada).
+
+**GitHub**
+- Repo baru `Proxsis-Biztech/ai-sitkorp`. PC dev memakai deploy key SSH (public key `~/.ssh/id_ed25519.pub`, centang *Allow write access*); remote `git@github.com:Proxsis-Biztech/ai-sitkorp.git`.
+- Awalnya deploy keys diblokir policy org → di-enable di Org Settings → Access → Member privileges → Deploy keys.
+- Commit pertama `297ef5c` (208 file, `.env` tidak ikut). Push pertama putus (connection reset), retry sukses.
+- Akses lintas-repo dari intelnuc: deploy key tidak bisa (per-repo), PAT fine-grained dipakai — **resource owner `Proxsis-Biztech`, akses ke repo yang dipilih, Contents: Read/Write**. Disimpan di `~/.git-credentials` intelnuc (mode 600, `credential.helper=store`). Jangan simpan token di URL remote.
+
+**Server intelnuc (dtpbg01 / 192.168.99.2)**
+- Ubuntu 24.04, 16 CPU / 62 GB RAM / sisa disk ~82 GB; Docker 29.5.3 + Compose v5.1.4; ufw nonaktif.
+- Port 80 terpakai nginx host dan 443 terpakai container nginx → aplikasi memakai **HTTP_PORT=8180** dan **HTTPS_PORT=8443**.
+- Clone HTTPS ke `~/ai-sitkorp`, git identity lokal: Russel <russelhaviz74@gmail.com>.
+- `.env` dibuat dengan secret ter-generate (mode 600). Bootstrap admin `russelhaviz74@gmail.com`. `SECRET_MASTER_KEY` wajib dibackup terpisah dari backup DB.
+- `docker compose up -d --build`: percobaan pertama gagal di `npm ci` (ECONNRESET ke registry npm), retry sukses (layer pip sudah ter-cache). Migrasi 0001–0006 berjalan, bootstrap admin dibuat, semua service healthy.
+
+**Masalah & perbaikan reverse proxy (Caddy)**
+1. **Tanpa SNI gagal**: `tls internal` butuh SNI; akses `https://192.168.99.2:8443` gagal handshake (browser tidak mengirim SNI untuk alamat IP). Solusi: gunakan nama domain (atau `curl --resolve` untuk tes).
+2. **`SITE_ADDRESS` multi-domain** harus dipisah **koma+spasi** (`a.com, b.com`); koma tanpa spasi membuat Caddy gagal (`Site addresses cannot contain a comma`) dan container restart loop.
+3. Blok redirect lama `http://{$SITE_ADDRESS}` salah parse saat multi-domain (domain kedua jadi https tanpa port) → diubah jadi `:80` catch-all; `{host} tetap mempertahankan nama domain yang diminta.
+- `.env` intelnuc: `SITE_ADDRESS=sitkorp-infra.proxsisgroup.com`, `APP_BASE_URL=https://sitkorp-infra.proxsisgroup.com` (tanpa port — akses publik lewat Cloudflare Tunnel; dipakai untuk tautan notifikasi).
+
+**Hasil verifikasi**
+- Tes dari server dan dari PC dev di LAN (via `curl --resolve`): `/` → 307 → `/login` 200; `GET /api/v1/health/ready` → `{"status":"ok","database":"ok"}`.
+- Login POST bootstrap → 200 + JWT.
+- Semua container `Up (healthy)`: postgres, redis, api, worker, scheduler, web, reverse-proxy.
+
+**Cloudflare Tunnel (akses publik)**
+- intelnuc sudah menjalankan `cloudflared` via systemd (mode token, diatur dari dashboard Cloudflare) serta tunnel terpisah `coolify-tunnel` untuk Coolify.
+- DNS `sitkorp-infra.proxsisgroup.com` sudah mengarah ke Cloudflare (terproxy), tetapi origin public hostname masih salah: dari internet dibalas `400 Client sent an HTTP request to an HTTPS server` (skema `http://` mengarah ke port TLS 8443).
+- Origin yang benar untuk app ini: **HTTPS `localhost:8443`**, dengan **Origin Server Name = sitkorp-infra.proxsisgroup.com**, **HTTP Host Header = sitkorp-infra.proxsisgroup.com**, dan **No TLS Verify aktif** (cert `tls internal` Caddy tidak dikenal cloudflared).
+
+**Menunggu**
+- Perbaikan origin public hostname di dashboard Cloudflare (lihat di atas) → tes `https://sitkorp-infra.proxsisgroup.com` dari internet.
+- Akses LAN langsung `:8443` (hosts file) opsional, tapi butuh kepercayaan CA internal Caddy (`pki/authorities/local/root.crt` di volume `caddydata`).
+- Ganti password bootstrap admin setelah login pertama; backup `SECRET_MASTER_KEY`.
+
+---
