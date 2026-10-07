@@ -4,23 +4,11 @@
 	auto_https disable_redirects
 }
 
-# Catch-all redirect on port 80 for any Host: {host} keeps the requested name, so
-# SITE_ADDRESS may list several domains (comma+space separated) in the block below.
-# Note: access by raw IP fails without SNI (browsers don't send SNI for IPs) —
-# use a hostname.
-:80 {
-	redir https://{host}:{$HTTPS_PORT:443}{uri} permanent
-}
-
-{$SITE_ADDRESS} {
-	# Internal CA: HTTPS on the LAN without a public certificate.
-	# Replace with a real certificate (tls cert.pem key.pem) for production.
-	tls internal
-
+# Shared routing for every listener below: /api to the backend, everything else to web.
+(app_routes) {
 	encode gzip
 
 	header {
-		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
@@ -34,4 +22,31 @@
 	handle {
 		reverse_proxy web:3000
 	}
+}
+
+# Catch-all redirect on port 80 for any Host: {host} keeps the requested name, so
+# SITE_ADDRESS may list several domains (comma+space separated) in the block below.
+# Note: access by raw IP fails without SNI (browsers don't send SNI for IPs) —
+# use a hostname.
+:80 {
+	redir https://{host}:{$HTTPS_PORT:443}{uri} permanent
+}
+
+# Plain HTTP listener for a reverse proxy on the same host that must speak HTTP
+# (e.g. a Cloudflare Tunnel -> http://127.0.0.1:8085). Published as 127.0.0.1 only;
+# public TLS terminates at the proxy, so no HSTS here.
+:8085 {
+	import app_routes
+}
+
+{$SITE_ADDRESS} {
+	# Internal CA: HTTPS on the LAN without a public certificate.
+	# Replace with a real certificate (tls cert.pem key.pem) for production.
+	tls internal
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+	}
+
+	import app_routes
 }

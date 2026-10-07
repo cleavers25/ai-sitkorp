@@ -790,11 +790,12 @@ Kualitas jawaban tetap (fakta sama, struktur Fakta/Dugaan/Rekomendasi dipertahan
 
 **Cloudflare Tunnel (akses publik)**
 - intelnuc sudah menjalankan `cloudflared` via systemd (mode token, diatur dari dashboard Cloudflare) serta tunnel terpisah `coolify-tunnel` untuk Coolify.
-- DNS `sitkorp-infra.proxsisgroup.com` sudah mengarah ke Cloudflare (terproxy), tetapi origin public hostname masih salah: dari internet dibalas `400 Client sent an HTTP request to an HTTPS server` (skema `http://` mengarah ke port TLS 8443).
-- Origin yang benar untuk app ini: **HTTPS `localhost:8443`**, dengan **Origin Server Name = sitkorp-infra.proxsisgroup.com**, **HTTP Host Header = sitkorp-infra.proxsisgroup.com**, dan **No TLS Verify aktif** (cert `tls internal` Caddy tidak dikenal cloudflared).
+- DNS `sitkorp-infra.proxsisgroup.com` sudah mengarah ke Cloudflare (terproxy). Awalnya origin public hostname menunjuk port TLS dengan skema `http://` → dibalas `400 Client sent an HTTP request to an HTTPS server`.
+- Supaya origin-nya sama dengan apps lain di tunnel (HTTP biasa), Caddy juga dibuka di **`:8085` (plain HTTP, hanya `127.0.0.1`)**; routing di-snippet `(app_routes)` dipakai bersama listener HTTPS. Port 8084 sudah terpakai, jadi dipilih 8085.
+- Origin public hostname yang benar: **Type HTTP, URL `localhost:8085`**. Redirect login web (`Location: /login?next=…`) bersifat relatif, jadi Host header dari tunnel tidak memengaruhi URL yang dilihat browser.
 
 **Menunggu**
-- Perbaikan origin public hostname di dashboard Cloudflare (lihat di atas) → tes `https://sitkorp-infra.proxsisgroup.com` dari internet.
+- Set origin public hostname di dashboard Cloudflare: **Type HTTP, URL `localhost:8085`** → tes `https://sitkorp-infra.proxsisgroup.com` dari internet.
 - Akses LAN langsung `:8443` (hosts file) opsional, tapi butuh kepercayaan CA internal Caddy (`pki/authorities/local/root.crt` di volume `caddydata`).
 - Ganti password bootstrap admin setelah login pertama; backup `SECRET_MASTER_KEY`.
 
